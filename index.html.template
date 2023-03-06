@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Transcribe/Translate</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <h1>Transcribe/Translate</h1>
+  <div>
+    <input type="radio" id="transcribe" name="Task" value="transcribe" checked>
+    <label for="Transcribe">Transcribe</label>
+    <input type="radio" id="translate" name="Task" value="translate">
+    <label for="Translate">Translate</label>
+    <p></p>
+  </div>
+
+  <div>
+    <button id="start-recording">Start Recording</button>
+    <button id="stop-recording" disabled>Stop Recording</button>
+  </div>
+
+  <div>
+    <h2>Recorded Audio:</h2>
+    <audio id="recorded-audio" controls></audio>
+  </div>
+
+  <div>
+    <h2>File upload:</h2>
+    <form>
+      <input id="audioFile" type="file"  />
+    </form>
+  </div>
+
+  <div>
+    <h2>Text:</h2>
+    <p id="transcribed-text"></p>
+  </div>
+
+  <script>
+    const authorizationToken = '$OPENAI_API_TOKEN';
+    const model = 'whisper-1';
+
+    let mediaRecorder;
+    let recordedChunks = [];
+    const startRecordingButton = document.getElementById('start-recording');
+    const stopRecordingButton = document.getElementById('stop-recording');
+    const recordedAudio = document.getElementById('recorded-audio');
+    const transcribedText = document.getElementById('transcribed-text');
+
+    const options = {
+      mimeType: 'audio/webm',
+      audioBitsPerSecond: 16000,
+    };
+
+    startRecordingButton.addEventListener('click', startRecording);
+    stopRecordingButton.addEventListener('click', stopRecording);
+
+    function startRecording() {
+      recordedChunks = [];
+
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          mediaRecorder = new MediaRecorder(stream, options);
+
+          mediaRecorder.addEventListener('dataavailable', event => {
+            recordedChunks.push(event.data);
+          });
+
+          mediaRecorder.addEventListener('stop', () => {
+            const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+            recordedAudio.src = URL.createObjectURL(blob);
+            recordedAudio.controls = true;
+            let isFile = false;
+            sendAudioToApi(blob, isFile);
+          });
+
+          startRecordingButton.disabled = true;
+          stopRecordingButton.disabled = false;
+
+          mediaRecorder.start();
+        })
+        .catch(error => {
+          console.error('Error accessing microphone:', error);
+        });
+    }
+
+    function stopRecording() {
+      mediaRecorder.stop();
+
+      startRecordingButton.disabled = false;
+      stopRecordingButton.disabled = true;
+    }
+
+    const uploadInput = document.getElementById("audioFile");
+    uploadInput.addEventListener(
+      "change",
+      () => {
+        let isFile = true;
+        sendAudioToApi(uploadInput.files[0], isFile);
+      }
+    );
+
+    function sendAudioToApi(content, isFile) {
+      const formData = new FormData();
+
+      if (isFile) {
+        formData.append('file', content);
+      } else {
+        formData.append('file', content, 'audio.webm');
+      }
+      formData.append('model', model);
+
+      // Switch tasks
+      let taskEndPoint = 'transcriptions';
+      if (document.getElementById('transcribe').checked) {
+        taskEndPoint = 'transcriptions';
+      }
+      if (document.getElementById('translate').checked) {
+        taskEndPoint = 'translations';
+      }
+
+      fetch(`https://api.openai.com/v1/audio/${taskEndPoint}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authorizationToken}`
+        },
+        body: formData
+      })
+        .then(response => response.json())
+        .then(data => {
+          transcribedText.textContent = data.text;
+        })
+        .catch(error => {
+          console.error('Error sending audio to API:', error);
+        });
+    }
+  </script>
+</body>
+</html>
